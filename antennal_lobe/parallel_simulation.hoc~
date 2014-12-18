@@ -1,0 +1,100 @@
+{load_file("nrngui.hoc")}
+{load_file("CellSwc.hoc")}
+{load_file("stdlib.hoc")}
+//{load_file("cellid.hoc")}
+{load_file("list1.hoc")}
+
+strdef pn_filename,rn_filename
+pn_filename = "./SWC/PN/toroid/050622_4_sn.swc"
+rn_filename = "./SWC/070224_SN-23-R.swc"
+
+objref pc
+pc = new ParallelContext()
+
+NUMRN = 50
+objref recepters, projection,nclist
+
+proc mkNetwork(){
+    mkcells($1)
+    connectcells()
+}
+
+proc mkcells(){local i localobj cells, projection, rn,nc, nil //recepter neuron
+    num_rn = $1
+    recepters = new List()
+
+    if(pc.id == 0){
+	projection = new CellSwc(pn_filename)
+	pc.set_gid2node(0,pc.id)
+    }else{
+	for (i=pc.id; i<$1; i+=pc.nhost){
+	    rn = new B_BallStick()
+	    recepters.append(rn)
+	    pc.set_gid2node(i,pc.id)
+	    print "gid ", i
+	    nc = rn.connect2target(nil)
+	    pc.cell(i,nc)
+	}
+    }
+}
+
+proc connectcells(){local i, targid localobj src,target,syn,nc
+    nclist = new List()
+    for i = 0, NUMRN -1{
+	targid = (i+1)%NUMRN
+	if(!pc.gid_exists(0)){continue}
+	print "gid_exists ",pc.gid_exists(0)
+	target = pc.gid2cell(0)
+	syn = target.synlist.object(0)
+	nc = pc.gid_connect(i,syn)
+	nclist.append(nc)
+	nc.delay = 1
+	nc.weight = 0.01
+    }
+}
+mkNetwork (NUMRN)
+
+objref stim,ncstim
+proc mkstim(){
+    if(!pc.gid_exists(0)){return}
+    stim = new NetStim()
+    stim.number = 1
+    stim.start = 0
+    ncstim = new NetCon(stim, pc.gid2cell(0).synlist.object(0))
+    ncstim.delay = 0
+    ncstim.weight = 0.01
+}
+mkstim()
+
+objref tvec, idvec
+proc spikerecord(){local i localobj nc, nil
+    tvec = new Vector()
+    idvec = new Vector()
+    for i=0, recepters.count-1{
+	nc = recepters.object(i).connect2target(nil)
+	nc.record(tvec, idvec, nc.srcgid)
+    }
+}
+spikerecord()
+
+tstop = 100
+{pc.set_maxstep(10)}
+stdinit()
+{pc.psolve(tstop)}
+
+proc spikeout(){local i, rank
+    pc.barrier()
+    if(pc.id==0)printf("\ntime\t cell\n")
+    for rank = 0, pc.nhost-1{
+	if(rank == pc.id){
+	    for i = 0, tvec.size-1{
+		printf("%g\t %d\n",tvec.x[i],idvec.x[i])
+	    }
+	}
+	pc.barrier()
+    }
+}
+spikeout()
+{pc.runworker()}
+{pc.done()}
+quit()

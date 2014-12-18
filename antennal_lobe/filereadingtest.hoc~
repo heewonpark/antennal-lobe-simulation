@@ -1,0 +1,25 @@
+proc setIClamp(){local stoptime, timestep, i  localobj ic, tvec, stim_flg, rand, datafile,spiketiming
+    stoptime = $1
+    timestep = $2
+    span = stoptime/timestep
+    print "span ",span
+
+    tvec = new Vector(span)
+    for i=0,span -1 {
+	tvec.x[i] = timestep * i
+    }
+    stim_flg = new Vector(span,0)
+    spiketiming = new Vector()
+    datafile = new File()
+    datafile.ropen(filename)
+    while(datafile.eof()){
+	spiketiming.append(datafile.scanvar()-6.0)
+    }
+    print "spiketiming "
+    print spiketiming
+    datafile.close()
+    soma ic  = new IClamp(1.0)
+    ic.delay = 0
+    ic.dur   = 1e9
+    stim_flg = 
+}

@@ -1,0 +1,71 @@
+
+load_file("nrngui.hoc")
+//load_file("cell.hoc")
+load_file("list1.hoc")
+
+NCELL = 20
+objref cells, nclist
+proc mkring(){
+    mkcells($1)
+    connectcells()
+}
+
+proc mkcells(){local i localobj cell
+    cells = new List()
+    for i=0, $1-1{
+	cell = new B_BallStick()
+	cells.append(cell)
+    }
+}
+
+proc connectcells(){local i localobj src, target, syn, nc
+    nclist = new List()
+    for i=0, cells.count-1{
+	src = cells.object(i)
+	target = cells.object((i+1)%cells.count)
+	syn = target.synlist.object(0)
+	nc = src.connect2target(syn)
+	nclist.append(nc)
+	nc.delay = 1
+	nc.weight = 0.01
+    }
+}
+
+mkring(NCELL)
+
+objref stim,ncstim
+proc mkstim(){
+    stim = new NetStim()
+    stim.number = 1
+    stim.start  = 0
+    ncstim = new NetCon(stim, cells.object(0).synlist.object(0))
+    ncstim.delay = 0
+    ncstim.weight = 0.01
+}
+
+mkstim()
+
+objref tvec, idvec
+
+proc spikerecord(){local i localobj nc, nil
+    tvec = new Vector()
+    idvec = new Vector()
+    for i=0, nclist.count-1{
+	nc = cells.object(i).connect2target(nil)
+	nc.record(tvec, idvec, i)
+    }
+}
+
+spikerecord()
+tstop = 100
+run()
+
+proc spikeout(){local i
+    printf("\ntime\t cell\n")
+    for i=0, tvec.size-1{
+	printf("%g\t %d\n",tvec.x[i], idvec.x[i])
+    }
+}
+
+spikeout()
+quit()

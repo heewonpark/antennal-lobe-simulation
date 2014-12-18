@@ -1,0 +1,9 @@
+begintemplate Recepter
+public soma, dend
+
+create soma, dend
+
+proc init(){
+    
+
+}

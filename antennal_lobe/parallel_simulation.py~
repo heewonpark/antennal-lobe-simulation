@@ -1,0 +1,68 @@
+from neuron import h
+from itertools import chain
+
+h.load_file("nrngui.hoc")
+
+h.load_file("CellSwc.hoc")
+
+pn_filename = "./SWC/PN/toroid/050622_4_sn.swc"
+rn_filename = "./SWC/070224_SN-23-R.swc"
+
+pc = h.ParallelContext()
+pc.runworker()
+
+NUMRN = 50 #number of recepter neurons
+recepters = []
+projection = None
+
+def mkNetwork(NumRN):
+    mkcells(NumRN)
+    connectcells(NumRN)
+
+def mkcells(NumRN):
+    if pc.id()==0:
+        projection = h.CellSwc(pn_filename)
+    else:
+        i=pc.id()
+        while i <= NumRN:
+            rn = make_RN()
+            recepters.append(rn)
+            i+=pc.nhost()
+
+#---------------------------------------------
+#Make recepter neuron
+#---------------------------------------------
+def mk_RN():
+    rn = h.Section()
+    rn.nseg = 10
+    rn.diam = 10
+    rn.L = 150
+    rn.insert('hh')
+    for seg in chain(rn):
+        seg.hh.gnabar = 0.0001
+        seg.hh.gkbar  = 0.01
+    return rn
+
+def connectcells(NumRN):
+    nclist = []
+    for i in range(NumRN):
+        targid = 0
+        if(!pc.gid_exists(targid)):
+            continue
+        target = pc.gid2cell(targid)
+        syn = target.synlist[0]
+        nc = pc.gid_connect(i,syn)
+        nc.delay = 0.1
+        nc.weight = 0.01
+
+mkNetwork(NUMRN)
+
+
+tstop = 100
+pc.set_maxstep(10)
+stdinit()
+pc.psolve(tstop)
+
+pc.runworker()
+pc.done()
+quit()

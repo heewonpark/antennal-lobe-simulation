@@ -1,0 +1,27 @@
+import matplotlib.pyplot as plt
+from matplotlib import pylab
+
+def drawGraph(filename):
+    datafile = open(filename,'r')
+    data = datafile.readlines()
+    nDatas, nColumns = data[0].split(' ')
+    nDatas = int(nDatas)
+    nColumns = int(nColumns)
+    print nDatas, nColumns
+    vec = [[0 for i in range(nDatas)] for j in range(nColumns)]
+    dummy = []
+    for i in range(0,nDatas):
+        #print i
+        #print data[i].split('\t')
+        dummy = data[i+1].split('\t')
+        for j in range(nColumns):
+            vec[i][j]=float(dummy[j])
+
+    flg = pylab.figure()
+    pylab.plot(tvec, vec,'r')
+    pylab.plot(tvec, vec2,'b')
+    pylab.plot(tvec, stim_vec)
+    #pylab.xlim(200,300)
+    pylab.savefig('receptertestrecord.png')
+    pylab.show()
+

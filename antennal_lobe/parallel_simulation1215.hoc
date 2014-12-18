@@ -1,0 +1,305 @@
+{load_file("nrngui.hoc")}
+{load_file("CellSwc_Ver1.hoc")}
+{load_file("stdlib.hoc")}
+//{load_file("cellid.hoc")}
+//{load_file("list1.hoc")}
+{load_file("RecepterNeuron.hoc")}
+
+strdef pn_filename,rn_filename
+pn_filename = "./SWC/PN/toroid/050622_4_sn.swc"
+rn_filename = "./SWC/070224_SN-23-R.swc"
+
+objref py
+py = new PythonObject()
+nrnpython("import time")
+
+
+
+objref pc
+pc = new ParallelContext()
+
+
+starttime = startsw()
+
+TSTOP = 200
+NUMRN = 10
+
+
+objref recepters, projection, nclist
+
+proc mkNetwork(){
+    mkcells($1)
+    connectcells()
+}
+
+proc mkcells(){local i, j localobj cells,rn,nc, nil //recepter neuron
+    num_rn = $1
+    recepters = new List()
+    if(pc.id == 0){
+	projection = new CellSwc(pn_filename)
+	projection{
+	    forall insert hh
+	}
+	pc.set_gid2node(0,pc.id)
+	//	projection.makeSyn(21,1,1,-65)	
+	//projection.synapses(21)
+	projection.mkSynapses()
+	for j=0, projection.synlist.count-1{
+	    projection.synlist.o(j).sid = j
+	    projection.synlist.o(j).cid = i
+	}
+	projection.Dend[21] nc = new NetCon(&v(0.5),nil)
+	nc.threshold = 1
+	pc.cell(0,nc)
+    }else{
+	for (i=pc.id; i<=$1; i+=(pc.nhost-1)){
+	    //	    print "pc.id ", pc.id
+	    rn = new Stick()
+	    recepters.append(rn)
+	    pc.set_gid2node(i,pc.id)
+	    //print "gid ", i
+	    nc = rn.connect2target(nil)
+	    pc.cell(i,nc)
+	}
+	print "recepters count ",recepters.count()
+    }
+    pc.barrier()
+}
+
+
+proc connectcells(){local i,j, targid,SynNumber localobj src,target,syn,nc
+    nclist = new List()
+    for i = 1, NUMRN{
+	if(!pc.gid_exists(0)){continue}
+	//print "gid_exists ",pc.gid_exists(0)," pc.id ",pc.id, " i ", i
+	target = pc.gid2cell(0)
+	SynNumber = (i-1)%projection.SynNumberList.size()
+	syn = target.synlist.object(SynNumber)
+	nc = pc.gid_connect(i,syn)
+	nc.delay = 1
+	nc.weight = 10/NUMRN
+	nclist.append(nc)
+    }
+}
+mkNetwork (NUMRN)
+
+objref stim,ncstim,ncslist,stimlist
+proc mkstim(){localobj target
+    ncslist = new List()
+    stimlist = new List()
+    for i = 1, NUMRN{
+	if(!pc.gid_exists(i)){continue}
+	//print "mkstim ", i
+	stim = new NetStim()
+	stim.number = 1
+	stim.start = 0
+	stimlist.append(stim)
+	
+	target = pc.gid2cell(i)
+	ncstim = new NetCon(stim, target.synlist.object(0))
+	ncstim.delay = 0
+	ncstim.weight = 1
+	ncslist.append(ncstim)
+    }
+}
+//mkstim()
+proc mkstim_single(){localobj target
+    if(!pc.gid_exists(0)){return}
+    stim = new NetStim()
+    stim.number = 1
+    stim.start = 0
+    target = pc.gid2cell(0)
+    ncstim = new NetCon(stim, target.synlist.object(0))
+    ncstim.delay = 0
+    ncstim.weight = 0.01
+}
+//mkstim_single()
+
+proc mkIClamp(){local stoptime, timestep localobj rand
+    stoptime = $1
+    timestep = $2
+    
+    rand = new Random()
+    
+    strdef filename
+    if(pc.id!=0){
+	for i=0, recepters.count-1{
+	    //	    print "mkIClamp pc.id ", pc.id, recepters.count
+	    sprint(filename,"./spiketiming/spiketiming%d.dat",int(rand.uniform(0,999)))
+	    //sprint(filename,"./spiketiming/spiketiming100.dat")
+	    recepters.object(i).setIClamp(stoptime, timestep, filename)
+	    //print "stim_vec printf ",i
+	    //	recepters.object(i).stim_vec.printf()
+	}
+    }
+    pc.barrier()
+}
+//print dt
+mkIClamp(TSTOP, dt)
+
+proc mkSinglePulse(){local i localobj ic
+    if(pc.id !=0){
+	for i=0, recepters.count()-1{
+	    recepters.object(i).setSinglePulse(pc.id,i)
+	}
+    }
+    pc.barrier()
+}
+//mkSinglePulse()
+
+objref tvec, idvec
+proc spikerecord(){local i localobj nc, nil,nclist
+    tvec = new Vector()
+    idvec = new Vector()
+    nclist = new List()
+    if(pc.id == 0){
+	//print "spike record ",pc.id
+	projection.Dend[21] nc = new NetCon(&v(0.5),nil)
+	nc.record(tvec,idvec,nc.srcgid)
+    }else{
+	//print "spike record ",pc.id
+	for i=0, recepters.count-1{
+	    //print "recepters.count ",recepters.count, " i ",i
+	    nc = recepters.object(i).connect2target(nil)
+	    nc.record(tvec, idvec, nc.srcgid)
+	    nclist.append(nc)
+	    //print "nc.srcgid ",nc.srcgid
+	}
+    }
+}
+spikerecord()
+
+
+objref RNvolt_vec[400]
+objref PNvolt_vec
+objref volt_tvec 
+/*
+proc setVoltageRecord(){local i
+    for i= 0, NUMRN-1{
+	RNvolt_vec[i] = new Vector()
+    }
+    volt_tvec = new Vector()
+    volt_tvec.record(&t)
+    if(pc.id == 0){
+	PNvolt_vec = new Vector()
+	PNvolt_vec.record(&projection.Dend[21].v(0.5))
+    }else{
+	for i=0, recepters.count-1{
+	    RNvolt_vec[i].record(&recepters.object(i).soma.v(0.5))
+	}
+    }
+}*/
+//setVoltageRecord()
+
+objref PNvolt_vecs[400]
+proc setVoltageRecord2(){local i
+    for i= 0, recepters.count()-1{
+	RNvolt_vec[i] = new Vector()
+    }
+    for i= 0, 50-1{
+	PNvolt_vecs[i] = new Vector()
+    }
+    volt_tvec = new Vector()
+    volt_tvec.record(&t)
+    if(pc.id == 0){
+	PNvolt_vec = new Vector()
+	PNvolt_vec.record(&projection.Dend[1211].v(0.5))
+	for i=0, projection.SynNumberList.size()-1{
+	    print projection.SynNumberList.x[i]
+	    PNvolt_vecs[i].record(&projection.Dend[projection.SynNumberList.x[i]].v(0.5))
+	}
+    }else{
+	for i=0, recepters.count()-1{
+	    RNvolt_vec[i].record(&recepters.object(i).soma.v(0.5))
+	}
+    }
+    pc.barrier()
+}
+setVoltageRecord2()
+nrnpython("t1 = time.time()")
+tstop = TSTOP
+{pc.set_maxstep(10)}
+stdinit()
+{pc.psolve(tstop)}
+
+endtime = stopsw()
+nrnpython("t2 = time.time()")
+pc.barrier()
+if(pc.id ==0){
+    print "TIME ", py.t2-py.t1
+}
+proc spikeout(){local i, rank
+    pc.barrier()
+    if(pc.id==0)printf("\ntime\t cell\n")
+    for rank = 0, pc.nhost-1{
+	if(rank == pc.id){
+	    //	    print "pc.id  ", pc.id
+	    print "Num Spikes ", tvec.size(), " ", idvec.x[i]
+	    for i = 0, tvec.size-1{
+		printf("%g\t %d\n",tvec.x[i],idvec.x[i])
+	    }
+	}
+	pc.barrier()
+    }
+}
+//spikeout()
+/*
+proc fprintVoltageRecord(){localobj mt, file
+    mt = new Matrix()
+    file = new File()
+    strdef filename
+    if(pc.id== 0){
+	mt.resize(volt_tvec.size(),2)
+	mt.setcol(0,volt_tvec)
+	mt.setcol(1,PNvolt_vec)
+    }else{
+	mt.resize(volt_tvec.size(),recepters.count + 1)
+	mt.setcol(0,volt_tvec)
+	for i=0, recepters.count-1{
+	    mt.setcol(i+1,RNvolt_vec[i])
+	}
+    }
+    sprint(filename,"Voltagerecord%d.txt",pc.id)
+    file.wopen(filename)
+    mt.fprint(file,"%5.5f\t")
+    file.close()
+}
+fprintVoltageRecord()
+*/
+proc fprintVoltageRecord2(){localobj mt, file,mt2, file2
+    mt = new Matrix()
+    file = new File()
+    
+    strdef filename
+    if(pc.id== 0){
+	mt.resize(volt_tvec.size(),2)
+	mt.setcol(0,volt_tvec)
+	mt.setcol(1,PNvolt_vec)
+	file2 = new File()
+	mt2 = new Matrix()
+	mt2.resize(volt_tvec.size(),projection.SynNumberList.size()+1)
+	mt2.setcol(0,volt_tvec)
+	for i=0, projection.SynNumberList.size()-1{
+	    mt2.setcol(i+1,PNvolt_vecs[i])
+	}
+	file2.wopen("PNsynVoltagerecord.txt")
+	mt2.fprint(file2,"%5.5f\t")
+	file2.close()
+    }else{
+	mt.resize(volt_tvec.size(),recepters.count + 1)
+	mt.setcol(0,volt_tvec)
+	for i=0, recepters.count-1{
+	    mt.setcol(i+1,RNvolt_vec[i])
+	}
+    }
+    sprint(filename,"Voltagerecord%d.txt",pc.id)
+    file.wopen(filename)
+    mt.fprint(file,"%5.5f\t")
+    file.close()
+}
+fprintVoltageRecord2()
+
+
+{pc.runworker()}
+{pc.done()}
+quit()

@@ -1,0 +1,85 @@
+
+{load_file("nrngui.hoc")}
+objref pc
+pc = new ParallelContext()
+{load_file("list1.hoc")}
+
+NCELL = 20
+objref cells, nclist
+proc mkring(){
+    mkcells($1)
+    connectcells()
+}
+
+proc mkcells(){local i localobj cell, nc, nil
+    cells = new List()
+    for (i=pc.id;i<$1;i+=pc.nhost){
+	cell = new B_BallStick()
+	cells.append(cell)
+	pc.set_gid2node(i,pc.id)
+	nc = cell.connect2target(nil)
+	pc.cell(i,nc)
+    }
+}
+
+proc connectcells(){local i, targid localobj src, target, syn, nc
+    nclist = new List()
+    for i = 0, NCELL -1{
+	targid = (i+1)%NCELL
+	if(!pc.gid_exists(targid)){continue}
+	target = pc.gid2cell(targid)
+	syn = target.synlist.object(0)
+	nc = pc.gid_connect(i,syn)
+	nclist.append(nc)
+	nc.delay = 1
+	nc.weight = 0.01
+    }
+}
+
+mkring(NCELL)
+
+objref stim, ncstim
+proc mkstim(){
+    if(!pc.gid_exists(0)){return}
+    stim = new NetStim()
+    stim.number = 1
+    stim.start  = 0
+    ncstim = new NetCon(stim, pc.gid2cell(0).synlist.object(0))
+    ncstim.delay = 0
+    ncstim.weight = 0.01
+}
+
+mkstim()
+objref tvec, idvec
+proc spikerecord(){local i localobj nc, nil
+    tvec = new Vector()
+    idvec = new Vector()
+    for i=0, cells.count-1{
+	nc = cells.object(i).connect2target(nil)
+	nc.record(tvec, idvec, nc.srcgid)
+    }
+}
+
+spikerecord()
+
+tstop = 100
+{pc.set_maxstep(10)}
+stdinit()
+{pc.psolve(tstop)}
+
+proc spikeout(){local i, rank
+    pc.barrier()
+    if(pc.id==0)printf("\ntime\t cell\n")
+    for rank = 0, pc.nhost-1{
+	if(rank ==pc.id){
+	    for i = 0, tvec.size-1{
+		printf("%g\t %d\n",tvec.x[i],idvec.x[i])
+	    }
+	}
+	pc.barrier()
+    }
+}
+spikeout()
+{pc.runworker()}
+{pc.done()}
+quit()
